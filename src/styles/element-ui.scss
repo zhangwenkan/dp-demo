@@ -1,0 +1,22 @@
+// 变更部分el变量 配置主题色
+:root {
+   --el-fill-color-blank: var(--sv3-backgroud-color);
+   --el-text-color-primary: var(--sv3-color-dark-black);
+   --el-bg-color: var(--sv3-backgroud-color);
+}
+
+// 修改 el-button--primary 主题色
+.el-button--primary {
+   --el-color-primary: var(--sv3-color-main);
+}
+
+.el-button--primary:hover,
+.el-button--primary:focus {
+   --el-button-hover-border-color: var(--sv3-color-main-light-1);
+   --el-button-hover-bg-color: var(--sv3-color-main-light-1);
+}
+
+.el-button--primary:active {
+   --el-button-active-border-color: var(--sv3-color-main);
+   --el-button-active-bg-color: var(--sv3-color-main);
+}
