@@ -26,6 +26,9 @@ importers:
       nprogress:
         specifier: ^0.2.0
         version: 0.2.0
+      openseadragon:
+        specifier: ^5.0.1
+        version: 5.0.1
       pinia:
         specifier: ^2.0.32
         version: 2.3.1(typescript@4.9.5)(vue@3.5.26(typescript@4.9.5))
@@ -2659,6 +2662,9 @@ packages:
   onetime@6.0.0:
     resolution: {integrity: sha512-1FlR+gjXK7X+AsAHso35MnyN5KqGwJRi/31ft6x0M194ht7S+rWAvd7PHss9xSKMzE0asv1pyIHaJYq+BbacAQ==}
     engines: {node: '>=12'}
+
+  openseadragon@5.0.1:
+    resolution: {integrity: sha512-a/hjouW9i3UfWxRADVYN2MyRhXMGnE7x9VVL7/4jXCcDLFyO4UM5o4RStYtqa5BfaHw/wMNAaD2WbxQF8f1pJg==}
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -6105,6 +6111,8 @@ snapshots:
   onetime@6.0.0:
     dependencies:
       mimic-fn: 4.0.0
+
+  openseadragon@5.0.1: {}
 
   optionator@0.9.4:
     dependencies:
