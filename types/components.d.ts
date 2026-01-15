@@ -9,7 +9,11 @@ export {}
 
 declare module '@vue/runtime-core' {
   export interface GlobalComponents {
+    DraggablePanel: typeof import('./../src/components/DraggablePanel.vue')['default']
+    DragPreview: typeof import('./../src/components/DragPreview.vue')['default']
+    ElIcon: typeof import('element-plus/es')['ElIcon']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SlideListPanel: typeof import('./../src/components/SlideListPanel.vue')['default']
   }
 }
