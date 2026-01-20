@@ -2,9 +2,9 @@
   <div id="thumbnail"
     class="fixed w-[180px] h-[166px] z-[100] top-[80px] left-[10px] border border-[#25b0e5] bg-black cursor-pointer overflow-hidden">
     <canvas id="cavView" class="absolute top-0 left-0"></canvas>
-    <div ref="hLineRef" class="absolute h-[1px] bg-red-600 w-full pointer-events-none" style="top: 50%;"></div>
-    <div ref="vLineRef" class="absolute w-[1px] bg-red-600 h-full pointer-events-none" style="left: 50%;"></div>
-    <div ref="viewRectRef" class="absolute border-1 border-red-600 pointer-events-none bg-white z-[10] opacity-50">
+    <div class="absolute h-[1px] bg-red-600 w-full pointer-events-none" :style="hLineStyle"></div>
+    <div class="absolute w-[1px] bg-red-600 h-full pointer-events-none" :style="vLineStyle"></div>
+    <div ref="viewRectRef" class="absolute border-1 border-red-600 pointer-events-none bg-white z-[10] opacity-50" :style="viewRectStyle">
     </div>
   </div>
 </template>
@@ -28,8 +28,25 @@ let dragOffsetX = 0; // 记录鼠标点击位置与红框中心的偏移 X
 let dragOffsetY = 0; // 记录鼠标点击位置与红框中心的偏移 Y
 
 const viewRectRef = ref<HTMLDivElement | null>(null);
-const hLineRef = ref<HTMLDivElement | null>(null);
-const vLineRef = ref<HTMLDivElement | null>(null);
+
+// 响应式数据用于驱动视图
+const viewRectStyle = ref({
+  left: '0px',
+  top: '0px',
+  width: '0px',
+  height: '0px',
+  display: 'block'
+});
+
+const hLineStyle = ref({
+  top: '50%',
+  display: 'block'
+});
+
+const vLineStyle = ref({
+  left: '50%',
+  display: 'block'
+});
 
 const updateNavigatorView = () => {
   if (!props.viewer || !navCanvas) return;
@@ -65,32 +82,31 @@ const updateNavigatorView = () => {
   const centerX = viewportCenter.x * navImageWidth + navOffsetX;
   const centerY = viewportCenter.y * navImageWidth + navOffsetY;
 
-  // 更新视口矩形
-  if (viewRectRef.value) {
-    viewRectRef.value.style.left = `${viewRectX}px`;
-    viewRectRef.value.style.top = `${viewRectY}px`;
-    viewRectRef.value.style.width = `${viewRectW}px`;
-    viewRectRef.value.style.height = `${viewRectH}px`;
-
+  // 更新视口矩形的样式数据
+  viewRectStyle.value = {
+    left: `${viewRectX}px`,
+    top: `${viewRectY}px`,
+    width: `${viewRectW}px`,
+    height: `${viewRectH}px`,
     // 如果视口完全在可视区域外，隐藏矩形
-    const isVisible = (
+    display: (
       viewRectX + viewRectW > 0 &&
       viewRectX < 180 &&
       viewRectY + viewRectH > 0 &&
       viewRectY < 166
-    );
-    viewRectRef.value.style.display = isVisible ? 'block' : 'none';
-  }
+    ) ? 'block' : 'none'
+  };
 
-  // 更新十字线位置
-  if (hLineRef.value) {
-    hLineRef.value.style.top = `${centerY}px`;
-    hLineRef.value.style.display = 'block';
-  }
-  if (vLineRef.value) {
-    vLineRef.value.style.left = `${centerX}px`;
-    vLineRef.value.style.display = 'block';
-  }
+  // 更新十字线位置的样式数据
+  hLineStyle.value = {
+    top: `${centerY}px`,
+    display: 'block'
+  };
+  
+  vLineStyle.value = {
+    left: `${centerX}px`,
+    display: 'block'
+  };
 };
 
 const initNavigator = () => {
@@ -168,10 +184,11 @@ const initNavigator = () => {
 
       // 获取当前 viewRect 的实时位置和尺寸
       if (viewRectRef.value) {
-        const vrLeft = parseFloat(viewRectRef.value.style.left || '0');
-        const vrTop = parseFloat(viewRectRef.value.style.top || '0');
-        const vrWidth = parseFloat(viewRectRef.value.style.width || '0');
-        const vrHeight = parseFloat(viewRectRef.value.style.height || '0');
+        // 优先使用响应式数据，如果不可用则从DOM获取
+        const vrLeft = parseFloat(viewRectStyle.value.left || '0');
+        const vrTop = parseFloat(viewRectStyle.value.top || '0');
+        const vrWidth = parseFloat(viewRectStyle.value.width || '0');
+        const vrHeight = parseFloat(viewRectStyle.value.height || '0');
 
         // 计算红框中心点
         const vrCenterX = vrLeft + vrWidth / 2;
