@@ -2,15 +2,15 @@
   <div id="thumbnail"
     class="fixed w-[180px] h-[166px] z-[100] top-[80px] left-[10px] border border-[#25b0e5] bg-black cursor-pointer overflow-hidden">
     <canvas id="cavView" class="absolute top-0 left-0"></canvas>
-    <div id="hLine" class="absolute h-[1px] bg-red-600 w-full pointer-events-none" style="top: 50%;"></div>
-    <div id="vLine" class="absolute w-[1px] bg-red-600 h-full pointer-events-none" style="left: 50%;"></div>
-    <div id="viewRect" class="absolute border-1 border-red-600 pointer-events-none bg-white z-[10] opacity-50">
+    <div ref="hLineRef" class="absolute h-[1px] bg-red-600 w-full pointer-events-none" style="top: 50%;"></div>
+    <div ref="vLineRef" class="absolute w-[1px] bg-red-600 h-full pointer-events-none" style="left: 50%;"></div>
+    <div ref="viewRectRef" class="absolute border-1 border-red-600 pointer-events-none bg-white z-[10] opacity-50">
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import OpenSeadragon from 'openseadragon';
 
 interface Props {
@@ -26,6 +26,10 @@ let navCtx: CanvasRenderingContext2D | null = null;
 let isDragging = false;
 let dragOffsetX = 0; // 记录鼠标点击位置与红框中心的偏移 X
 let dragOffsetY = 0; // 记录鼠标点击位置与红框中心的偏移 Y
+
+const viewRectRef = ref<HTMLDivElement | null>(null);
+const hLineRef = ref<HTMLDivElement | null>(null);
+const vLineRef = ref<HTMLDivElement | null>(null);
 
 const updateNavigatorView = () => {
   if (!props.viewer || !navCanvas) return;
@@ -62,12 +66,11 @@ const updateNavigatorView = () => {
   const centerY = viewportCenter.y * navImageWidth + navOffsetY;
 
   // 更新视口矩形
-  const viewRect = document.getElementById('viewRect');
-  if (viewRect) {
-    viewRect.style.left = `${viewRectX}px`;
-    viewRect.style.top = `${viewRectY}px`;
-    viewRect.style.width = `${viewRectW}px`;
-    viewRect.style.height = `${viewRectH}px`;
+  if (viewRectRef.value) {
+    viewRectRef.value.style.left = `${viewRectX}px`;
+    viewRectRef.value.style.top = `${viewRectY}px`;
+    viewRectRef.value.style.width = `${viewRectW}px`;
+    viewRectRef.value.style.height = `${viewRectH}px`;
 
     // 如果视口完全在可视区域外，隐藏矩形
     const isVisible = (
@@ -76,19 +79,17 @@ const updateNavigatorView = () => {
       viewRectY + viewRectH > 0 &&
       viewRectY < 166
     );
-    viewRect.style.display = isVisible ? 'block' : 'none';
+    viewRectRef.value.style.display = isVisible ? 'block' : 'none';
   }
 
   // 更新十字线位置
-  const hLine = document.getElementById('hLine');
-  const vLine = document.getElementById('vLine');
-  if (hLine) {
-    hLine.style.top = `${centerY}px`;
-    hLine.style.display = 'block';
+  if (hLineRef.value) {
+    hLineRef.value.style.top = `${centerY}px`;
+    hLineRef.value.style.display = 'block';
   }
-  if (vLine) {
-    vLine.style.left = `${centerX}px`;
-    vLine.style.display = 'block';
+  if (vLineRef.value) {
+    vLineRef.value.style.left = `${centerX}px`;
+    vLineRef.value.style.display = 'block';
   }
 };
 
@@ -124,9 +125,8 @@ const initNavigator = () => {
 
   // 添加拖动/点击事件，操作导航视图更改主视图位置
   const thumbnail = document.getElementById('thumbnail');
-  const viewRect = document.getElementById('viewRect');
 
-  if (thumbnail && viewRect) {
+  if (thumbnail && viewRectRef.value) {
     const performMove = (e: MouseEvent, useOffset = true) => {
       if (!props.viewer) return;
       const rect = thumbnail.getBoundingClientRect();
@@ -167,32 +167,34 @@ const initNavigator = () => {
       const mouseY = e.clientY - rect.top;
 
       // 获取当前 viewRect 的实时位置和尺寸
-      const vrLeft = parseFloat(viewRect.style.left || '0');
-      const vrTop = parseFloat(viewRect.style.top || '0');
-      const vrWidth = parseFloat(viewRect.style.width || '0');
-      const vrHeight = parseFloat(viewRect.style.height || '0');
+      if (viewRectRef.value) {
+        const vrLeft = parseFloat(viewRectRef.value.style.left || '0');
+        const vrTop = parseFloat(viewRectRef.value.style.top || '0');
+        const vrWidth = parseFloat(viewRectRef.value.style.width || '0');
+        const vrHeight = parseFloat(viewRectRef.value.style.height || '0');
 
-      // 计算红框中心点
-      const vrCenterX = vrLeft + vrWidth / 2;
-      const vrCenterY = vrTop + vrHeight / 2;
+        // 计算红框中心点
+        const vrCenterX = vrLeft + vrWidth / 2;
+        const vrCenterY = vrTop + vrHeight / 2;
 
-      // 判断鼠标是否在红框内
-      const isInside = (
-        mouseX >= vrLeft &&
-        mouseX <= vrLeft + vrWidth &&
-        mouseY >= vrTop &&
-        mouseY <= vrTop + vrHeight
-      );
+        // 判断鼠标是否在红框内
+        const isInside = (
+          mouseX >= vrLeft &&
+          mouseX <= vrLeft + vrWidth &&
+          mouseY >= vrTop &&
+          mouseY <= vrTop + vrHeight
+        );
 
-      if (isInside) {
-        isDragging = true;
-        // 记录点击位置相对于红框中心的偏移量
-        dragOffsetX = mouseX - vrCenterX;
-        dragOffsetY = mouseY - vrCenterY;
-      } else {
-        // 在红框外点击：只跳转，不开启拖动
-        isDragging = false;
-        performMove(e, false); // 跳转时不需要偏移
+        if (isInside) {
+          isDragging = true;
+          // 记录点击位置相对于红框中心的偏移量
+          dragOffsetX = mouseX - vrCenterX;
+          dragOffsetY = mouseY - vrCenterY;
+        } else {
+          // 在红框外点击：只跳转，不开启拖动
+          isDragging = false;
+          performMove(e, false); // 跳转时不需要偏移
+        }
       }
     };
 
@@ -225,8 +227,32 @@ onMounted(() => {
   setTimeout(updateNavigatorView, 100);
 });
 
+// 监听viewer的变化并添加事件处理器
+watch(() => props.viewer, (newViewer, oldViewer) => {
+  // 移除旧的事件监听器
+  if (oldViewer) {
+    oldViewer.removeHandler('zoom', updateNavigatorView);
+    oldViewer.removeHandler('pan', updateNavigatorView);
+    oldViewer.removeHandler('open', updateNavigatorView);
+  }
+  
+  // 添加新的事件监听器
+  if (newViewer) {
+    newViewer.addHandler('zoom', updateNavigatorView);
+    newViewer.addHandler('pan', updateNavigatorView);
+    newViewer.addHandler('open', updateNavigatorView); // 当新图像打开时更新
+  }
+}, { immediate: true });
+
 onUnmounted(() => {
-  // 清理事件监听器
+  // 清理viewer事件监听器
+  if (props.viewer) {
+    props.viewer.removeHandler('zoom', updateNavigatorView);
+    props.viewer.removeHandler('pan', updateNavigatorView);
+    props.viewer.removeHandler('open', updateNavigatorView);
+  }
+  
+  // 清理窗口事件监听器
   window.removeEventListener('mousemove', () => {});
   window.removeEventListener('mouseup', () => {});
 });

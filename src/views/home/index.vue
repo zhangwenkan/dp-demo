@@ -204,8 +204,7 @@ const imageInfo = reactive({
 let viewer: any = null;
 let playTimer: any = null;
 let initialZoom: number = 1; // 记录初始缩放级别
-let navCanvas: HTMLCanvasElement | null = null; // 导航视图canvas
-let navCtx: CanvasRenderingContext2D | null = null; // canvas上下文
+
 const slideListPanelRef = ref<InstanceType<typeof SlideListPanel> | null>(null);
 
 // 响应式变量
@@ -238,283 +237,85 @@ const showResetButton = computed(() => {
    return position.x !== 60 || position.y !== 175;  // 恢复初始位置判断
 });
 
-// 初始化导航视图
-const initNavigator = () => {
-   navCanvas = document.getElementById('cavView') as HTMLCanvasElement;
-   if (!navCanvas) return;
 
-   // 设置canvas尺寸
-   navCanvas.width = 180;
-   navCanvas.height = 166;
-   navCtx = navCanvas.getContext('2d');
-
-   if (navCtx) {
-      // 绘制缩略图（使用当前图片）
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-         if (navCtx) {
-            // 计算缩放比例以适应canvas
-            const scale = Math.min(180 / img.width, 166 / img.height);
-            const width = img.width * scale;
-            const height = img.height * scale;
-            const x = (180 - width) / 2;
-            const y = (166 - height) / 2;
-            
-            // 清空并绘制
-            navCtx.clearRect(0, 0, 180, 166);
-            navCtx.drawImage(img, x, y, width, height);
-         }
-      };
-      img.src = imageList[currentIndex.value].url;
-   }
-   
-   // 添加拖动/点击事件，操作导航视图更改主视图位置
-   const thumbnail = document.getElementById('thumbnail');
-   const viewRect = document.getElementById('viewRect');
-
-   if (thumbnail && viewRect) {
-      let isDragging = false;
-      let dragOffsetX = 0; // 记录鼠标点击位置与红框中心的偏移 X
-      let dragOffsetY = 0; // 记录鼠标点击位置与红框中心的偏移 Y
-
-      const performMove = (e: MouseEvent, useOffset = true) => {
-         if (!viewer) return;
-         const rect = thumbnail.getBoundingClientRect();
-         let clickX = e.clientX - rect.left;
-         let clickY = e.clientY - rect.top;
-
-         // 如果是拖拽状态，需要减去初始偏移量，保持红框与鼠标相对位置不变
-         if (useOffset && isDragging) {
-            clickX -= dragOffsetX;
-            clickY -= dragOffsetY;
-         }
-
-         // 使用与 updateNavigatorView 中一致的计算方法
-         const tiledImage = viewer.world.getItemAt(0);
-         if (!tiledImage) return;
-
-         const imageWidth = tiledImage.source.dimensions.x;
-         const imageHeight = tiledImage.source.dimensions.y;
-         const aspectRatio = imageWidth / imageHeight;
-
-         // 参考网站逻辑：以 180px 宽度为基准计算比例
-         const navImageWidth = 180;
-         const navImageHeight = 180 / aspectRatio;
-
-         // 计算偏移量以居中显示在 180x166 容器中
-         const navOffsetX = 0;
-         const navOffsetY = (166 - navImageHeight) / 2;
-
-         const normalizedX = (clickX - navOffsetX) / navImageWidth;
-         const normalizedY = (clickY - navOffsetY) / navImageHeight;
-
-         viewer.viewport.panTo(new OpenSeadragon.Point(normalizedX, normalizedY), true);
-      };
-
-      thumbnail.onmousedown = (e: MouseEvent) => {
-         const rect = thumbnail.getBoundingClientRect();
-         const mouseX = e.clientX - rect.left;
-         const mouseY = e.clientY - rect.top;
-
-         // 获取当前 viewRect 的实时位置和尺寸
-         const vrLeft = parseFloat(viewRect.style.left || '0');
-         const vrTop = parseFloat(viewRect.style.top || '0');
-         const vrWidth = parseFloat(viewRect.style.width || '0');
-         const vrHeight = parseFloat(viewRect.style.height || '0');
-
-         // 计算红框中心点
-         const vrCenterX = vrLeft + vrWidth / 2;
-         const vrCenterY = vrTop + vrHeight / 2;
-
-         // 判断鼠标是否在红框内
-         const isInside = (
-            mouseX >= vrLeft &&
-            mouseX <= vrLeft + vrWidth &&
-            mouseY >= vrTop &&
-            mouseY <= vrTop + vrHeight
-         );
-
-         if (isInside) {
-            isDragging = true;
-            // 记录点击位置相对于红框中心的偏移量
-            dragOffsetX = mouseX - vrCenterX;
-            dragOffsetY = mouseY - vrCenterY;
-         } else {
-            // 在红框外点击：只跳转，不开启拖动
-            isDragging = false;
-            performMove(e, false); // 跳转时不需要偏移
-         }
-      };
-
-      window.addEventListener('mousemove', (e: MouseEvent) => {
-         if (!isDragging || !viewer) return;
-
-         const rect = thumbnail.getBoundingClientRect();
-         const mouseX = e.clientX - rect.left;
-         const mouseY = e.clientY - rect.top;
-
-         // 1. 检查鼠标是否超出了 thumbnail 容器范围 (180x166)
-         if (mouseX < 0 || mouseX > 180 || mouseY < 0 || mouseY > 166) {
-            isDragging = false;
-            return;
-         }
-
-         // 执行移动
-         performMove(e);
-      });
-
-      window.addEventListener('mouseup', () => {
-         isDragging = false;
-      });
-   }
-};
-
-// 更新导航视图的视口矩形和十字线
-const updateNavigatorView = () => {
-   if (!viewer || !navCanvas) return;
-
-   // 获取视口相对于图像的坐标和尺寸 (0到1之间)
-   const bounds = viewer.viewport.getBounds();
-   
-   // 获取图片实际尺寸
-   const tiledImage = viewer.world.getItemAt(0);
-   if (!tiledImage) return;
-   
-   const imageWidth = tiledImage.source.dimensions.x;
-   const imageHeight = tiledImage.source.dimensions.y;
-   const aspectRatio = imageWidth / imageHeight;
-   
-   // 参考网站逻辑：以 180px 宽度为基准计算比例
-   const navImageWidth = 180;
-   const navImageHeight = 180 / aspectRatio;
-   
-   // 计算偏移量以居中显示在 180x166 容器中 (注意: 容器高度实际为 166)
-   const navOffsetX = 0; 
-   const navOffsetY = (166 - navImageHeight) / 2;
-   
-   // 计算视口在缩略图中的位置和尺寸
-   const viewRectX = bounds.x * navImageWidth + navOffsetX;
-   const viewRectY = bounds.y * navImageWidth + navOffsetY; // 垂直位置也基于宽度比例计算
-   const viewRectW = bounds.width * navImageWidth;
-   const viewRectH = bounds.height * navImageWidth; // 高度同样基于宽度比例
-   
-   // 计算中心点（十字线交叉点）
-   const centerX = viewRectX + viewRectW / 2;
-   const centerY = viewRectY + viewRectH / 2;
-   
-   // 更新视口矩形
-   const viewRect = document.getElementById('viewRect');
-   if (viewRect) {
-      viewRect.style.left = `${viewRectX}px`;
-      viewRect.style.top = `${viewRectY}px`;
-      viewRect.style.width = `${viewRectW}px`;
-      viewRect.style.height = `${viewRectH}px`;
-      
-      // 如果视口完全在可视区域外，隐藏矩形
-      const isVisible = (
-         viewRectX + viewRectW > 0 && 
-         viewRectX < 180 && 
-         viewRectY + viewRectH > 0 && 
-         viewRectY < 166
-      );
-      viewRect.style.display = isVisible ? 'block' : 'none';
-   }
-   
-   // 更新十字线位置
-   const hLine = document.getElementById('hLine');
-   const vLine = document.getElementById('vLine');
-   if (hLine) {
-      hLine.style.top = `${centerY}px`;
-      hLine.style.display = 'block';
-   }
-   if (vLine) {
-      vLine.style.left = `${centerX}px`;
-      vLine.style.display = 'block';
-   }
-};
 
 // 初始化OpenSeadragon
 const initOpenSeadragon = () => {
-   if (viewer) {
-      viewer.destroy();
-   }
+  if (viewer) {
+    viewer.destroy();
+  }
 
-   viewer = OpenSeadragon({
-      id: "openseadragon1",
-      showNavigationControl: false,
-      prefixUrl: "/src/assets/images/openseadragon/",
-      tileSources: {
-         type: "image",
-         url: imageList[currentIndex.value].url
-      },
-      // 添加缩放事件监听
-      zoomPerClick: 1.2,
-      visibilityRatio: 1,
-      constrainDuringPan: true,
-      minZoomLevel: 0.1,
-      // 关闭原生Navigator，使用自定义导航视图
-      showNavigator: false
-   });
+  viewer = OpenSeadragon({
+    id: "openseadragon1",
+    showNavigationControl: false,
+    prefixUrl: "/src/assets/images/openseadragon/",
+    tileSources: {
+      type: "image",
+      url: imageList[currentIndex.value].url
+    },
+    // 添加缩放事件监听
+    zoomPerClick: 1.2,
+    visibilityRatio: 1,
+    constrainDuringPan: true,
+    minZoomLevel: 0.1,
+    gestureSettingsMouse: { 
+      zoomToRefPoint: true // 保持以鼠标为中心缩放
+    },
+    // 关闭原生Navigator，使用自定义导航视图
+    showNavigator: false
+  });
 
-   // 等待图片加载完成后记录初始zoom值并设置动态约束
-   viewer.addHandler('open', function () {
-      initialZoom = viewer.viewport.getHomeZoom(); // 获取初始适配视口的zoom值
-      
-      // 动态设置最大缩放：倍数(80x) * 初始zoom
-      const maxMultiplier = Number(imageInfo.viewInfo.scanRate) * 4;
-      viewer.viewport.maxZoomLevel = initialZoom * maxMultiplier;
-      // 允许缩小到 0.1x
-      viewer.viewport.minZoomLevel = initialZoom * 0.1;
-      
-      // 初始化导航视图
-      initNavigator();
-      // 初始更新导航视图
-      updateNavigatorView();
-   });
+  // 等待图片加载完成后记录初始zoom值并设置动态约束
+  viewer.addHandler('open', function () {
+    initialZoom = viewer.viewport.getHomeZoom(); // 获取初始适配视口的zoom值
+    
+    // 动态设置最大缩放：倍数(80x) * 初始zoom
+    const maxMultiplier = Number(imageInfo.viewInfo.scanRate) * 4;
+    viewer.viewport.maxZoomLevel = initialZoom * maxMultiplier;
+    // 允许缩小到 0.1x
+    viewer.viewport.minZoomLevel = initialZoom * 0.1;
+    
+    // 初始更新导航视图
+    // 注意：现在通过 NavigatorView 组件内部处理
+  });
 
-   // 监听缩放变化
-   viewer.addHandler('zoom', function () {
-      const currentZoom = viewer.viewport.getZoom();
-      // 计算相对于初始zoom的倍数
-      const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
-   
-      zoomValue.value = Math.round(actualMultiplier * 10) / 10; // 保留一位小数
-      zoomPercent.value = Math.round(actualMultiplier * 100);
-         
-      // 更新导航视图
-      updateNavigatorView();
-   });
-      
-   // 监听缩放结束事件，处理居中逻辑
-   viewer.addHandler('zoom-end', function () {
-      const currentZoom = viewer.viewport.getZoom();
-      // 计算相对于初始zoom的倍数
-      const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
-         
-      // 只有当缩放到接近1:1比例（刚好能在屏幕上放下）并且当前视口中心偏离图像中心较多时才居中
-      if (actualMultiplier <= 1.1 && actualMultiplier >= 0.9) { // 在1:1比例附近
-         const currentCenter = viewer.viewport.getCenter();
-         const imageCenter = new OpenSeadragon.Point(0.5, 0.5); // 图像中心点
-            
-         // 计算当前中心点与图像中心的距离
-         const distance = Math.sqrt(
-            Math.pow(currentCenter.x - imageCenter.x, 2) + 
-            Math.pow(currentCenter.y - imageCenter.y, 2)
-         );
-            
-         // 如果偏离超过一定阈值，则居中
-         if (distance > 0.1) {
-            viewer.viewport.goHome(true); // 平滑移动到居中位置
-         }
-      }
-   });
-      
-   // 监听位置变化
-   viewer.addHandler('pan', function () {
-      // 更新导航视图
-      updateNavigatorView();
-   });
+  // 监听缩放变化
+  viewer.addHandler('zoom', function () {
+    const currentZoom = viewer.viewport.getZoom();
+    // 计算相对于初始zoom的倍数
+    const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
+
+    zoomValue.value = Math.round(actualMultiplier * 10) / 10; // 保留一位小数
+    zoomPercent.value = Math.round(actualMultiplier * 100);
+  });
+  
+  // 监听缩放结束事件，处理居中逻辑
+  viewer.addHandler('zoom-end', function () {
+    const currentZoom = viewer.viewport.getZoom();
+    // 计算相对于初始zoom的倍数
+    const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
+    
+    // 只有当缩放到接近1:1比例（刚好能在屏幕上放下）并且当前视口中心偏离图像中心较多时才居中
+    if (actualMultiplier <= 1.1 && actualMultiplier >= 0.9) { // 在1:1比例附近
+       const currentCenter = viewer.viewport.getCenter();
+       const imageCenter = new OpenSeadragon.Point(0.5, 0.5); // 图像中心点
+       
+       // 计算当前中心点与图像中心的距离
+       const distance = Math.sqrt(
+          Math.pow(currentCenter.x - imageCenter.x, 2) + 
+          Math.pow(currentCenter.y - imageCenter.y, 2)
+       );
+       
+       // 如果偏离超过一定阈值，则居中
+       if (distance > 0.1) {
+          viewer.viewport.goHome(true); // 平滑移动到居中位置
+       }
+    }
+  });
+  
+  // 监听位置变化
+  viewer.addHandler('pan', function () {
+  });
 };
 
 // 切换到上一张图片
