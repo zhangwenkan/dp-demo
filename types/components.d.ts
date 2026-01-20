@@ -12,6 +12,7 @@ declare module '@vue/runtime-core' {
     DraggablePanel: typeof import('./../src/components/DraggablePanel.vue')['default']
     DragPreview: typeof import('./../src/components/DragPreview.vue')['default']
     ElIcon: typeof import('element-plus/es')['ElIcon']
+    NavigatorView: typeof import('./../src/components/NavigatorView.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SlideListPanel: typeof import('./../src/components/SlideListPanel.vue')['default']
