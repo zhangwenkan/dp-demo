@@ -98,12 +98,12 @@ import {
 
 // 图像列表
 const imageList = reactive([
-   { slideName: '切片1', adoptedPart: '甲状腺', url: '/src/assets/images/slice/1.png' },
-   { slideName: '切片2', adoptedPart: '甲状腺', url: '/src/assets/images/slice/2.png' },
-   { slideName: '切片3', adoptedPart: '甲状腺', url: '/src/assets/images/slice/3.png' },
-   { slideName: '切片4', adoptedPart: '甲状腺', url: '/src/assets/images/slice/4.png' },
-   { slideName: '切片5', adoptedPart: '甲状腺', url: '/src/assets/images/slice/5.png' },
-   { slideName: '切片6', adoptedPart: '甲状腺', url: '/src/assets/images/slice/6.png' },
+   { slideName: '切片1', adoptedPart: '甲状腺', url: '/src/assets/images/slice/1.jpg' },
+   { slideName: '切片2', adoptedPart: '甲状腺', url: '/src/assets/images/slice/2.jpg' },
+   { slideName: '切片3', adoptedPart: '甲状腺', url: '/src/assets/images/slice/3.jpg' },
+   { slideName: '切片4', adoptedPart: '甲状腺', url: '/src/assets/images/slice/4.jpg' },
+   { slideName: '切片5', adoptedPart: '甲状腺', url: '/src/assets/images/slice/5.jpg' },
+   { slideName: '切片6', adoptedPart: '甲状腺', url: '/src/assets/images/slice/6.jpg' },
 ]);
 
 // 图像具体信息
@@ -111,13 +111,13 @@ const imageInfo = reactive({
    baseInfo: {
       "fileId": "e6e1c5b355e4bd9844731d71bc9da574",
       "rate": 20,
-      "tileSize": 256,
+      "tileSize": 254,
       "maxLevel": 14,
       "calibration": 0.4672897160053253,
       "rotationAngle": 0,
       "lense": 20,
-      "width": 14073,
-      "height": 13022,
+      "width": 10000,
+      "height": 9000,
       "vender": "kfb"
    },
    extraInfo: [
@@ -249,18 +249,21 @@ const initOpenSeadragon = () => {
     id: "openseadragon1",
     showNavigationControl: false,
     prefixUrl: "/src/assets/images/openseadragon/",
-    tileSources: {
-      type: "image",
-      url: imageList[currentIndex.value].url
-    },
+    tileSources: getCurrentTileSource(),
+
+   // tileSources: '/assets/kfb_cells_10000.dzi',
     // 添加缩放事件监听
     zoomPerClick: 1.2,
     visibilityRatio: 1,
     constrainDuringPan: true,
     minZoomLevel: 0.1,
     gestureSettingsMouse: { 
-      zoomToRefPoint: true // 保持以鼠标为中心缩放
+      clickToZoom: false, // 禁用鼠标单击
+      dblClickToZoom: true,
+      zoomToRefPoint: true // 默认以鼠标为中心缩放
     },
+    panHorizontal: false, // 禁用水平拖动
+    panVertical: false, // 禁用垂直拖动
     // 关闭原生Navigator，使用自定义导航视图
     showNavigator: false
   });
@@ -275,6 +278,14 @@ const initOpenSeadragon = () => {
     // 允许缩小到 0.1x
     viewer.viewport.minZoomLevel = initialZoom * 0.1;
     
+    // 初始时根据当前缩放级别设置zoomToRefPoint
+    const currentMultiplier = viewer.viewport.getZoom() / initialZoom;
+    if (currentMultiplier < 1) {
+      viewer.gestureSettingsMouse.zoomToRefPoint = false; // 以画布为中心缩放
+    } else {
+      viewer.gestureSettingsMouse.zoomToRefPoint = true; // 以鼠标位置为中心缩放
+    }
+    
     // 初始更新导航视图
     // 注意：现在通过 NavigatorView 组件内部处理
   });
@@ -287,6 +298,13 @@ const initOpenSeadragon = () => {
 
     zoomValue.value = Math.round(actualMultiplier * 10) / 10; // 保留一位小数
     zoomPercent.value = Math.round(actualMultiplier * 100);
+    
+    // 当缩放比例小于1:1时，动态调整zoomToRefPoint设置以实现画布中心缩放
+    if (actualMultiplier < 1) {
+      viewer.gestureSettingsMouse.zoomToRefPoint = false; // 以画布为中心缩放
+    } else {
+      viewer.gestureSettingsMouse.zoomToRefPoint = true; // 以鼠标位置为中心缩放
+    }
   });
   
   // 监听缩放结束事件，处理居中逻辑
@@ -294,6 +312,13 @@ const initOpenSeadragon = () => {
     const currentZoom = viewer.viewport.getZoom();
     // 计算相对于初始zoom的倍数
     const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
+    
+    // 当缩放比例小于1:1时，动态调整zoomToRefPoint设置以实现画布中心缩放
+    if (actualMultiplier < 1) {
+      viewer.gestureSettingsMouse.zoomToRefPoint = false; // 以画布为中心缩放
+    } else {
+      viewer.gestureSettingsMouse.zoomToRefPoint = true; // 以鼠标位置为中心缩放
+    }
     
     // 只有当缩放到接近1:1比例（刚好能在屏幕上放下）并且当前视口中心偏离图像中心较多时才居中
     if (actualMultiplier <= 1.1 && actualMultiplier >= 0.9) { // 在1:1比例附近
@@ -397,6 +422,21 @@ const resetView = () => {
    if (slideListPanelRef.value) {
       slideListPanelRef.value.resetPosition();
    }
+};
+
+// 根据文件扩展名获取适当的tileSources配置
+const getCurrentTileSource = () => {
+  const currentImage = imageList[currentIndex.value];
+  if (currentIndex.value === 0) {
+    // 第一张切片直接返回URL字符串
+    return '/assets/kfb_cells_10000.dzi';
+  } else {
+    // 对于普通图像文件，返回对象格式
+    return {
+      type: "image",
+      url: currentImage.url
+    };
+  }
 };
 
 // 处理键盘缩放快捷键
