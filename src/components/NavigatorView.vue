@@ -62,25 +62,30 @@ const updateNavigatorView = () => {
   const imageHeight = tiledImage.source.dimensions.y;
   const aspectRatio = imageWidth / imageHeight;
 
-  // 参考网站逻辑：以 180px 宽度为基准计算比例
-  const navImageWidth = 180;
-  const navImageHeight = 180 / aspectRatio;
-
-  // 计算偏移量以居中显示在 180x166 容器中 (注意: 容器高度实际为 166)
-  const navOffsetX = 0;
-  const navOffsetY = (166 - navImageHeight) / 2;
+  // 重新计算导航图像的尺寸，使其适应容器 (180x166)
+  const containerWidth = 180;
+  const containerHeight = 166;
+    
+  // 按照图片纵横比适配容器
+  const scale = Math.min(containerWidth / imageWidth, containerHeight / imageHeight);
+  const navImageWidth = imageWidth * scale;
+  const navImageHeight = imageHeight * scale;
+    
+  // 计算偏移量以居中显示在 180x166 容器中
+  const navOffsetX = (containerWidth - navImageWidth) / 2;
+  const navOffsetY = (containerHeight - navImageHeight) / 2;
 
   // 计算视口在缩略图中的位置和尺寸
   const viewRectX = bounds.x * navImageWidth + navOffsetX;
-  const viewRectY = bounds.y * navImageWidth + navOffsetY; // 垂直位置也基于宽度比例计算
+  const viewRectY = bounds.y * navImageHeight + navOffsetY; // 垂直位置基于高度比例计算
   const viewRectW = bounds.width * navImageWidth;
-  const viewRectH = bounds.height * navImageWidth; // 高度同样基于宽度比例
+  const viewRectH = bounds.height * navImageHeight; // 高度基于高度比例计算
 
   // 参考网站逻辑：十字线反映视口的中心点 (Viewport Center)
   // 直接获取当前视口中心点在图像上的归一化坐标 (0~1)
   const viewportCenter = props.viewer.viewport.getCenter();
   const centerX = viewportCenter.x * navImageWidth + navOffsetX;
-  const centerY = viewportCenter.y * navImageWidth + navOffsetY;
+  const centerY = viewportCenter.y * navImageHeight + navOffsetY;
 
   // 更新视口矩形的样式数据
   viewRectStyle.value = {
@@ -102,7 +107,7 @@ const updateNavigatorView = () => {
     top: `${centerY}px`,
     display: 'block'
   };
-  
+    
   vLineStyle.value = {
     left: `${centerX}px`,
     display: 'block'
@@ -161,15 +166,19 @@ const initNavigator = () => {
 
       const imageWidth = tiledImage.source.dimensions.x;
       const imageHeight = tiledImage.source.dimensions.y;
-      const aspectRatio = imageWidth / imageHeight;
-
-      // 参考网站逻辑：以 180px 宽度为基准计算比例
-      const navImageWidth = 180;
-      const navImageHeight = 180 / aspectRatio;
-
+      
+      // 重新计算导航图像的尺寸，使其适应容器 (180x166)
+      const containerWidth = 180;
+      const containerHeight = 166;
+      
+      // 按照图片纵横比适配容器
+      const scale = Math.min(containerWidth / imageWidth, containerHeight / imageHeight);
+      const navImageWidth = imageWidth * scale;
+      const navImageHeight = imageHeight * scale;
+      
       // 计算偏移量以居中显示在 180x166 容器中
-      const navOffsetX = 0;
-      const navOffsetY = (166 - navImageHeight) / 2;
+      const navOffsetX = (containerWidth - navImageWidth) / 2;
+      const navOffsetY = (containerHeight - navImageHeight) / 2;
 
       const normalizedX = (clickX - navOffsetX) / navImageWidth;
       const normalizedY = (clickY - navOffsetY) / navImageHeight;

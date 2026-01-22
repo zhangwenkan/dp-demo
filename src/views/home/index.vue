@@ -16,6 +16,12 @@
                      <Refresh />
                   </ElIcon>
                </button>
+               <button @click="toggleFullScreen"
+                  class="bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 font-medium py-2 px-3 rounded-lg shadow-lg transition duration-200 flex items-center cursor-pointer">
+                  <ElIcon :size="20">
+                     <FullScreen />
+                  </ElIcon>
+               </button>
             </div>
 
             <!-- 缩放控制区域 -->
@@ -92,7 +98,8 @@ import NavigatorView from '@/components/NavigatorView.vue';
 import { ElIcon } from 'element-plus';
 import {
    Document,
-   Refresh
+   Refresh,
+   FullScreen
 } from '@element-plus/icons-vue';
 
 
@@ -245,6 +252,36 @@ const initOpenSeadragon = () => {
     viewer.destroy();
   }
 
+  // 创建一个函数来根据视口边界设置拖动控制
+  const updatePanControls = () => {
+    const bounds = viewer.viewport.getBounds();
+    
+    // 计算当前视口的宽高相对于图像的比例
+    // 当视口边界小于图像边界时，表示图像比视口大，可以拖动
+    const isViewSmallerThanImageHorizontally = bounds.x > 0 || (bounds.x + bounds.width) < 1;
+    const isViewSmallerThanImageVertically = bounds.y > 0 || (bounds.y + bounds.height) < 1;
+    
+    // 当视口完全包含在图像内部时（红框小于导航视图范围），允许上下左右拖动
+    if (isViewSmallerThanImageHorizontally && isViewSmallerThanImageVertically) {
+      viewer.panHorizontal = true;
+      viewer.panVertical = true;
+    }
+    // 当视口在某一个维度上与图像相等时（红框刚好等于导航视图范围），只允许另一个维度拖动
+    else if (isViewSmallerThanImageHorizontally) {
+      // 水平方向上视口小于图像，允许水平拖动
+      viewer.panHorizontal = true;
+      viewer.panVertical = false; // 垂直方向已满，不允许垂直拖动
+    } else if (isViewSmallerThanImageVertically) {
+      // 垂直方向上视口小于图像，允许垂直拖动
+      viewer.panHorizontal = false; // 水平方向已满，不允许水平拖动
+      viewer.panVertical = true;
+    } else {
+      // 当视口超出图像边界时（红框大于导航视图），不允许拖动
+      viewer.panHorizontal = false;
+      viewer.panVertical = false;
+    }
+  };
+
   viewer = OpenSeadragon({
     id: "openseadragon1",
     showNavigationControl: false,
@@ -254,19 +291,31 @@ const initOpenSeadragon = () => {
    // tileSources: '/assets/kfb_cells_10000.dzi',
     // 添加缩放事件监听
     zoomPerClick: 1.2,
-    visibilityRatio: 1,
-    constrainDuringPan: true,
-    minZoomLevel: 0.1,
+    visibilityRatio: 0.1,
+    constrainDuringPan: false,
+    minZoomLevel: 0.01,
     gestureSettingsMouse: { 
       clickToZoom: false, // 禁用鼠标单击
-      dblClickToZoom: true,
+      dblClickToZoom: false, // 禁用默认双击缩放
       zoomToRefPoint: true // 默认以鼠标为中心缩放
     },
-    panHorizontal: false, // 禁用水平拖动
-    panVertical: false, // 禁用垂直拖动
     // 关闭原生Navigator，使用自定义导航视图
     showNavigator: false
   });
+
+  // 自定义双击事件处理，实现第一次双击放大到4x，第二次双击放大到20x，之后不再响应双击缩放
+
+
+  // 添加双击事件监听器
+  viewer.addHandler('canvas-double-click', function () {
+    console.log('initialZoom', zoomValue.value)
+    if (zoomValue.value === 1 || zoomValue.value < 4 || (zoomValue.value <= 20 && zoomValue.value > 4)) {
+      viewer.viewport.zoomTo(initialZoom * 4);
+      console.log('55', zoomValue.value)
+    } else if (zoomValue.value === 4 || zoomValue.value > 20) {
+      viewer.viewport.zoomTo(initialZoom * 20);
+    }
+  })
 
   // 等待图片加载完成后记录初始zoom值并设置动态约束
   viewer.addHandler('open', function () {
@@ -285,6 +334,9 @@ const initOpenSeadragon = () => {
     } else {
       viewer.gestureSettingsMouse.zoomToRefPoint = true; // 以鼠标位置为中心缩放
     }
+    
+    // 根据导航视图中红框大小设置初始拖动状态
+    updatePanControls();
     
     // 初始更新导航视图
     // 注意：现在通过 NavigatorView 组件内部处理
@@ -305,6 +357,9 @@ const initOpenSeadragon = () => {
     } else {
       viewer.gestureSettingsMouse.zoomToRefPoint = true; // 以鼠标位置为中心缩放
     }
+    
+    // 动态控制拖动功能：根据导航视图中红框大小来判断
+    updatePanControls();
   });
   
   // 监听缩放结束事件，处理居中逻辑
@@ -320,8 +375,11 @@ const initOpenSeadragon = () => {
       viewer.gestureSettingsMouse.zoomToRefPoint = true; // 以鼠标位置为中心缩放
     }
     
-    // 只有当缩放到接近1:1比例（刚好能在屏幕上放下）并且当前视口中心偏离图像中心较多时才居中
-    if (actualMultiplier <= 1.1 && actualMultiplier >= 0.9) { // 在1:1比例附近
+    // 动态控制拖动功能：根据导航视图中红框大小来判断
+    updatePanControls();
+    
+    // 当缩放到足够小时（小于1:1），自动居中
+    if (actualMultiplier < 1) { // 当缩放到小于1:1时自动居中
        const currentCenter = viewer.viewport.getCenter();
        const imageCenter = new OpenSeadragon.Point(0.5, 0.5); // 图像中心点
        
@@ -332,7 +390,7 @@ const initOpenSeadragon = () => {
        );
        
        // 如果偏离超过一定阈值，则居中
-       if (distance > 0.1) {
+       if (distance > 0.05) {
           viewer.viewport.goHome(true); // 平滑移动到居中位置
        }
     }
@@ -421,6 +479,19 @@ const resetView = () => {
    // 重置切片列表面板到初始位置
    if (slideListPanelRef.value) {
       slideListPanelRef.value.resetPosition();
+   }
+};
+
+// 切换全屏模式
+const toggleFullScreen = () => {
+   if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+         console.error(`进入全屏模式失败: ${err.message}`);
+      });
+   } else {
+      if (document.exitFullscreen) {
+         document.exitFullscreen();
+      }
    }
 };
 
