@@ -22,13 +22,14 @@
                      <FullScreen />
                   </ElIcon>
                </button>
-               <button @click="toggleMeasurementMode"
+               <button @click="toggleMeasuringMode"
                   class="bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 font-medium py-2 px-3 rounded-lg shadow-lg transition duration-200 flex items-center cursor-pointer"
-                  :class="{ 'bg-blue-500 text-white': isMeasuring }">
+                  :class="measuringMode ? 'bg-blue-500 text-white' : ''">
                   <ElIcon :size="20">
-                     <Pointer />
+                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="20" height="20">
+                        <path fill="currentColor" d="M128 480h768v64H128v-64z m0-256h768v64H128V224z m0 512h768v64H128v-64z"/>
+                     </svg>
                   </ElIcon>
-                  <span class="ml-1">测量</span>
                </button>
             </div>
 
@@ -107,10 +108,8 @@ import { ElIcon } from 'element-plus';
 import {
    Document,
    Refresh,
-   FullScreen,
-   Pointer
+   FullScreen
 } from '@element-plus/icons-vue';
-import { addSvgOverlay } from '@/utils/openseadragon-svg-overlay';
 
 
 // 图像列表
@@ -122,6 +121,16 @@ const imageList = reactive([
    { slideName: '切片5', adoptedPart: '甲状腺', url: '/src/assets/images/slice/5.jpg' },
    { slideName: '切片6', adoptedPart: '甲状腺', url: '/src/assets/images/slice/6.jpg' },
 ]);
+
+// 测量功能相关状态
+const measuringMode = ref(false); // 测量模式开关
+const measurementStartPoint = ref<{ x: number; y: number } | null>(null);
+const measurementEndPoint = ref<{ x: number; y: number } | null>(null);
+const measurementDistance = ref<number | null>(null); // 物理距离
+
+// Canvas元素引用
+let measurementCanvas: HTMLCanvasElement | null = null;
+let canvasContext: CanvasRenderingContext2D | null = null;
 
 // 图像具体信息
 const imageInfo = reactive({
@@ -232,14 +241,11 @@ const playDirection = ref('forward');
 const zoomValue = ref(1);
 const zoomPercent = ref(100);
 const slideListVisible = ref(false); // 切片列表面板是否可见
-const isMeasuring = ref(false); // 是否处于测量模式
-const measurementLine = ref<any>(null); // 测量线元素
-const measurementText = ref<any>(null); // 测量文本元素
 
 // 缩放倍数级别
 const zoomLevels = [
    { label: '1x', value: 1 },
-   { label: '2x', value: 4 },
+   { label: '2x', value: 2 },
    { label: '4x', value: 4 },
    { label: '10x', value: 10 },
    { label: '20x', value: 20 },
@@ -257,37 +263,7 @@ const showResetButton = computed(() => {
    return position.x !== 60 || position.y !== 175;  // 恢复初始位置判断
 });
 
-// 创建一个函数来根据视口边界设置拖动控制
-const updatePanControls = (currentViewer: any) => {
-  if (!currentViewer) return;
-  
-  const bounds = currentViewer.viewport.getBounds();
-  
-  // 计算当前视口的宽高相对于图像的比例
-  // 当视口边界小于图像边界时，表示图像比视口大，可以拖动
-  const isViewSmallerThanImageHorizontally = bounds.x > 0 || (bounds.x + bounds.width) < 1;
-  const isViewSmallerThanImageVertically = bounds.y > 0 || (bounds.y + bounds.height) < 1;
-  
-  // 当视口完全包含在图像内部时（红框小于导航视图范围），允许上下左右拖动
-  if (isViewSmallerThanImageHorizontally && isViewSmallerThanImageVertically) {
-    currentViewer.panHorizontal = true;
-    currentViewer.panVertical = true;
-  }
-  // 当视口在某一个维度上与图像相等时（红框刚好等于导航视图范围），只允许另一个维度拖动
-  else if (isViewSmallerThanImageHorizontally) {
-    // 水平方向上视口小于图像，允许水平拖动
-    currentViewer.panHorizontal = true;
-    currentViewer.panVertical = false; // 垂直方向已满，不允许垂直拖动
-  } else if (isViewSmallerThanImageVertically) {
-    // 垂直方向上视口小于图像，允许垂直拖动
-    currentViewer.panHorizontal = false; // 水平方向已满，不允许水平拖动
-    currentViewer.panVertical = true;
-  } else {
-    // 当视口超出图像边界时（红框大于导航视图），不允许拖动
-    currentViewer.panHorizontal = false;
-    currentViewer.panVertical = false;
-  }
-};
+
 
 // 初始化OpenSeadragon
 const initOpenSeadragon = () => {
@@ -343,38 +319,16 @@ const initOpenSeadragon = () => {
       zoomToRefPoint: true // 默认以鼠标为中心缩放
     },
     // 关闭原生Navigator，使用自定义导航视图
-    showNavigator: false
+    showNavigator: false,
+    // 在测量模式下进一步禁用鼠标交互
+    panHorizontal: true,
+    panVertical: true
   });
-
-  // 创建一个函数来根据视口边界设置拖动控制（内部版本）
-  const updatePanControlsInternal = () => {
-    const bounds = viewer.viewport.getBounds();
-    
-    // 计算当前视口的宽高相对于图像的比例
-    // 当视口边界小于图像边界时，表示图像比视口大，可以拖动
-    const isViewSmallerThanImageHorizontally = bounds.x > 0 || (bounds.x + bounds.width) < 1;
-    const isViewSmallerThanImageVertically = bounds.y > 0 || (bounds.y + bounds.height) < 1;
-    
-    // 当视口完全包含在图像内部时（红框小于导航视图范围），允许上下左右拖动
-    if (isViewSmallerThanImageHorizontally && isViewSmallerThanImageVertically) {
-      viewer.panHorizontal = true;
-      viewer.panVertical = true;
-    }
-    // 当视口在某一个维度上与图像相等时（红框刚好等于导航视图范围），只允许另一个维度拖动
-    else if (isViewSmallerThanImageHorizontally) {
-      // 水平方向上视口小于图像，允许水平拖动
-      viewer.panHorizontal = true;
-      viewer.panVertical = false; // 垂直方向已满，不允许垂直拖动
-    } else if (isViewSmallerThanImageVertically) {
-      // 垂直方向上视口小于图像，允许垂直拖动
-      viewer.panHorizontal = false; // 水平方向已满，不允许水平拖动
-      viewer.panVertical = true;
-    } else {
-      // 当视口超出图像边界时（红框大于导航视图），不允许拖动
-      viewer.panHorizontal = false;
-      viewer.panVertical = false;
-    }
-  };
+  
+  // 保存原始的鼠标事件处理器，以便在测量模式下临时禁用它们
+  let originalMouseDownHandler = null;
+  let originalMouseMoveHandler = null;
+  let originalMouseUpHandler = null;
 
   // 自定义双击事件处理，实现第一次双击放大到4x，第二次双击放大到20x，之后不再响应双击缩放
 
@@ -409,13 +363,10 @@ const initOpenSeadragon = () => {
     }
     
     // 根据导航视图中红框大小设置初始拖动状态
-    updatePanControlsInternal();
+    updatePanControls();
     
     // 初始更新导航视图
     // 注意：现在通过 NavigatorView 组件内部处理
-    
-    // 初始化SVG Overlay
-    addSvgOverlay(viewer);
   });
 
   // 监听缩放变化
@@ -435,7 +386,7 @@ const initOpenSeadragon = () => {
     }
     
     // 动态控制拖动功能：根据导航视图中红框大小来判断
-    updatePanControlsInternal();
+    updatePanControls();
     
     // 如果缩放到足够小，强制居中
     if (actualMultiplier < 1) {
@@ -458,7 +409,7 @@ const initOpenSeadragon = () => {
     }
     
     // 动态控制拖动功能：根据导航视图中红框大小来判断
-    updatePanControlsInternal();
+    updatePanControls();
     
     // 当缩放到足够小时（小于1:1），自动居中
     if (actualMultiplier < 1) { // 当缩放到小于1:1时自动居中
@@ -478,6 +429,18 @@ const initOpenSeadragon = () => {
     if (actualMultiplier < 1) {
       // 应用约束以确保图像不会完全移出视野
       viewer.viewport.applyConstraints(true);
+    }
+    
+    // 如果处于测量模式，重绘测量线
+    if (measuringMode.value) {
+      redrawMeasurementLine();
+    }
+  });
+  
+  // 监听缩放和平移事件，及时更新测量线
+  viewer.addHandler('animation', function () {
+    if (measuringMode.value) {
+      redrawMeasurementLine();
     }
   });
 };
@@ -563,6 +526,411 @@ const resetView = () => {
    }
 };
 
+// 切换测量模式
+const toggleMeasuringMode = () => {
+   measuringMode.value = !measuringMode.value;
+   
+   if (measuringMode.value) {
+      // 进入测量模式
+      if (viewer) {
+         // 保存当前的交互设置
+         (viewer as any).originalPanHorizontal = viewer.panHorizontal;
+         (viewer as any).originalPanVertical = viewer.panVertical;
+         (viewer as any).originalDragToPan = viewer.gestureSettingsMouse.dragToPan;
+         
+         // 禁用拖拽平移以避免与测量冲突
+         viewer.panHorizontal = false;
+         viewer.panVertical = false;
+         viewer.gestureSettingsMouse.dragToPan = false;
+      }
+      
+      // 初始化Canvas
+      initMeasurementCanvas();
+      // 绑定鼠标事件
+      bindMeasurementEvents();
+   } else {
+      // 退出测量模式
+      if (viewer) {
+         // 恢复之前的交互设置
+         viewer.panHorizontal = (viewer as any).originalPanHorizontal ?? true;
+         viewer.panVertical = (viewer as any).originalPanVertical ?? true;
+         viewer.gestureSettingsMouse.dragToPan = (viewer as any).originalDragToPan ?? true;
+      }
+      
+      // 清除测量数据和事件
+      clearMeasurement();
+      unbindMeasurementEvents();
+   }
+};
+
+// 初始化测量Canvas
+const initMeasurementCanvas = () => {
+   // 移除旧的Canvas（如果存在）
+   const existingCanvas = document.getElementById('measurement-canvas');
+   if (existingCanvas) {
+      existingCanvas.remove();
+   }
+   
+   if (viewer) {
+      // 创建新的Canvas元素
+      measurementCanvas = document.createElement('canvas');
+      measurementCanvas.id = 'measurement-canvas';
+      
+      // 设置Canvas样式
+      Object.assign(measurementCanvas.style, {
+         pointerEvents: 'none', // 让Canvas不阻挡鼠标事件
+      });
+      
+      // 设置Canvas尺寸
+      if (measurementCanvas) {
+         // 设置较大的初始尺寸来提高清晰度
+         measurementCanvas.width = 4000; // 较大的初始宽度
+         measurementCanvas.height = 4000; // 较大的初始高度
+         
+         // 初始化Canvas上下文
+         canvasContext = measurementCanvas.getContext('2d');
+         
+         // 设置初始绘制样式
+         if (canvasContext) {
+            canvasContext.lineCap = 'round';
+            canvasContext.lineJoin = 'round';
+            // 启用抗锯齿以提高清晰度
+            canvasContext.imageSmoothingEnabled = true;
+            canvasContext.imageSmoothingQuality = 'high';
+         }
+      }
+      
+      // 将Canvas作为overlay添加到viewer中
+      if (viewer && measurementCanvas) {
+         // 添加为overlay，让其随图像一起缩放
+         viewer.addOverlay({
+            element: measurementCanvas,
+            location: new OpenSeadragon.Rect(0, 0, 1, 1), // 从图像的左上角开始，覆盖整个图像
+            id: 'measurement-overlay',
+            placement: OpenSeadragon.OverlayPlacement.TOP_LEFT
+         });
+         
+         // 初始绘制
+         redrawMeasurementLine();
+      }
+      
+      // 监听缩放和平移事件，动态调整canvas大小以保持清晰度
+      viewer.addHandler('zoom', function(event) {
+         if (measuringMode.value) {
+            redrawMeasurementLine(); // 在缩放时重新绘制
+         }
+      });
+      
+      viewer.addHandler('pan', function(event) {
+         if (measuringMode.value) {
+            redrawMeasurementLine();
+         }
+      });
+      
+      // 监听resize事件，调整canvas大小
+      viewer.addHandler('open', function(event) {
+         if (measuringMode.value) {
+            setTimeout(() => {
+               redrawMeasurementLine();
+            }, 100);
+         }
+      });
+   }
+};
+
+// 绑定测量相关的鼠标事件
+const bindMeasurementEvents = () => {
+   if (viewer) {
+      // 使用OpenSeadragon的内置事件系统
+      (viewer as any).measurementMouseDownHandler = (event: any) => {
+         if (!measuringMode.value || !viewer || !canvasContext) return;
+         
+         console.log('测量模式下的鼠标按下事件触发');
+         
+         // 阻止默认动作
+         event.originalEvent.preventDefault();
+         
+         // 获取鼠标位置
+         const position = event.position;
+         
+         // 转换为OpenSeadragon视口坐标
+         const viewportPoint = viewer.viewport.pointFromPixel(position);
+         
+         // 保存起始点
+         measurementStartPoint.value = { x: viewportPoint.x, y: viewportPoint.y };
+         measurementEndPoint.value = { x: viewportPoint.x, y: viewportPoint.y };
+         measurementDistance.value = 0;
+         
+         console.log('测量起点:', measurementStartPoint.value);
+         
+         // 绘制起始点
+         redrawMeasurementLine();
+         
+         // 添加移动和释放事件
+         const onMouseDrag = (dragEvent: any) => {
+            if (!measuringMode.value || !viewer || !canvasContext || !measurementStartPoint.value) return;
+            
+            dragEvent.originalEvent.preventDefault();
+            
+            const dragPosition = dragEvent.position;
+            
+            // 转换为OpenSeadragon视口坐标
+            const dragViewportPoint = viewer.viewport.pointFromPixel(dragPosition);
+            
+            // 更新终点
+            measurementEndPoint.value = { x: dragViewportPoint.x, y: dragViewportPoint.y };
+            
+            // 计算物理距离
+            calculatePhysicalDistance();
+            
+            console.log('测量过程中的距离:', measurementDistance.value);
+            
+            // 绘制测量线
+            redrawMeasurementLine();
+         };
+         
+         const onMouseRelease = (releaseEvent: any) => {
+            releaseEvent.originalEvent.preventDefault();
+            
+            console.log('测量结束，终点:', measurementEndPoint.value, '距离:', measurementDistance.value);
+            
+            // 移除临时事件
+            viewer.removeHandler('canvas-drag', onMouseDrag);
+            viewer.removeHandler('canvas-release', onMouseRelease);
+            
+            // 确保最后一次绘制
+            redrawMeasurementLine();
+         };
+         
+         viewer.addHandler('canvas-drag', onMouseDrag);
+         viewer.addHandler('canvas-release', onMouseRelease);
+      };
+      
+      viewer.addHandler('canvas-press', (viewer as any).measurementMouseDownHandler);
+   }
+};
+
+// 解绑测量相关的鼠标事件
+const unbindMeasurementEvents = () => {
+   if (viewer) {
+      const handler = (viewer as any).measurementMouseDownHandler;
+      
+      if (handler) {
+         viewer.removeHandler('canvas-press', handler);
+         (viewer as any).measurementMouseDownHandler = null;
+      }
+   }
+};
+
+// 清除测量数据
+const clearMeasurement = () => {
+   measurementStartPoint.value = null;
+   measurementEndPoint.value = null;
+   measurementDistance.value = null;
+   
+   // 清除Canvas
+   if (measurementCanvas && canvasContext) {
+      canvasContext.clearRect(0, 0, measurementCanvas.width, measurementCanvas.height);
+   }
+   
+   // 如果viewer存在，移除overlay
+   if (viewer) {
+      try {
+         viewer.removeOverlay('measurement-overlay');
+      } catch (e) {
+         // 如果overlay不存在则忽略错误
+      }
+   }
+};
+
+// 动态调整Canvas分辨率以保持清晰度
+const adjustCanvasResolution = () => {
+   if (!viewer || !measurementCanvas || !canvasContext) return;
+   
+   // 获取当前缩放级别
+   const currentZoom = viewer.viewport.getZoom();
+   const homeZoom = viewer.viewport.getHomeZoom();
+   const zoomFactor = currentZoom / homeZoom;
+   
+   // 根据当前缩放级别计算合适的canvas尺寸
+   // 避免canvas过大导致性能问题
+   const maxCanvasSize = 4000; // 最大canvas尺寸
+   
+   // 基础尺寸（根据图像大小）
+   const bounds = viewer.world.getBounds();
+   const baseWidth = bounds.width;
+   const baseHeight = bounds.height;
+   
+   // 计算缩放后的尺寸
+   let newWidth = Math.min(Math.ceil(baseWidth * zoomFactor * 2), maxCanvasSize);
+   let newHeight = Math.min(Math.ceil(baseHeight * zoomFactor * 2), maxCanvasSize);
+   
+   // 确保最小尺寸
+   newWidth = Math.max(newWidth, 500);
+   newHeight = Math.max(newHeight, 500);
+   
+   // 只有当尺寸变化较大时才重新创建canvas
+   if (Math.abs(measurementCanvas.width - newWidth) > 100 || Math.abs(measurementCanvas.height - newHeight) > 100) {
+      // 保存当前内容
+      let tempCanvas = document.createElement('canvas');
+      tempCanvas.width = measurementCanvas.width;
+      tempCanvas.height = measurementCanvas.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      if (tempCtx) {
+         tempCtx.drawImage(measurementCanvas, 0, 0);
+         
+         // 重新设置canvas尺寸
+         measurementCanvas.width = newWidth;
+         measurementCanvas.height = newHeight;
+         
+         // 恢复内容
+         canvasContext.drawImage(tempCanvas, 0, 0);
+      }
+   }
+   
+   // 重新绘制测量线
+   redrawMeasurementLine();
+};
+
+// 计算物理距离
+const calculatePhysicalDistance = () => {
+   if (!measurementStartPoint.value || !measurementEndPoint.value) return;
+   
+   // 获取图像像素/微米比例
+   const calibration = imageInfo.baseInfo.calibration; // μm/Pixel
+   
+   // 计算两点间的欧几里得距离（在图像坐标系中）
+   const dx = measurementEndPoint.value.x - measurementStartPoint.value.x;
+   const dy = measurementEndPoint.value.y - measurementStartPoint.value.y;
+   const distanceInViewport = Math.sqrt(dx * dx + dy * dy);
+   
+   // 转换为实际物理距离（微米）
+   // 需要考虑当前缩放级别
+   const currentZoom = viewer?.viewport.getZoom() || 1;
+   const initialZoom = viewer?.viewport.getHomeZoom() || 1;
+   const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
+   
+   // 实际距离 = 视口距离 × 缩放系数 × 像素转微米系数
+   const distanceInPixels = distanceInViewport / actualMultiplier;
+   const physicalDistance = distanceInPixels * calibration; // 微米
+   
+   measurementDistance.value = parseFloat(physicalDistance.toFixed(2));
+};
+
+// 重新绘制测量线
+const redrawMeasurementLine = () => {
+   if (!canvasContext || !measurementCanvas) {
+      console.log('Canvas上下文或Canvas元素未初始化', { canvasContext: !!canvasContext, measurementCanvas: !!measurementCanvas });
+      return;
+   }
+   
+   canvasContext.clearRect(0, 0, measurementCanvas.width, measurementCanvas.height);
+   
+   if (!measurementStartPoint.value) {
+      console.log('测量起点未设置');
+      return;
+   }
+   
+   console.log('开始绘制测量线', {
+      startPoint: measurementStartPoint.value,
+      endPoint: measurementEndPoint.value,
+      distance: measurementDistance.value,
+      canvasSize: { width: measurementCanvas.width, height: measurementCanvas.height }
+   });
+   
+   // 设置绘制样式
+   canvasContext.strokeStyle = '#FF0000'; // 红色
+   canvasContext.lineWidth = 2;
+   canvasContext.setLineDash([]); // 实线，无虚线
+   
+   // 将世界坐标转换为Canvas坐标
+   let startX = 0, startY = 0, endX = 0, endY = 0;
+   
+   // 使用OpenSeadragon的overlay坐标系统
+   if (viewer && measurementCanvas) {
+      // 将归一化坐标转换为Canvas像素坐标
+      startX = measurementStartPoint.value.x * measurementCanvas.width;
+      startY = measurementStartPoint.value.y * measurementCanvas.height;
+      
+      console.log('坐标转换结果', { startX, startY, canvasWidth: measurementCanvas.width, canvasHeight: measurementCanvas.height });
+      
+      // 终点
+      if (measurementEndPoint.value) {
+         endX = measurementEndPoint.value.x * measurementCanvas.width;
+         endY = measurementEndPoint.value.y * measurementCanvas.height;
+         
+         console.log('终点坐标转换结果', { endX, endY });
+      } else {
+         // 如果没有终点，则终点与起点相同
+         endX = startX;
+         endY = startY;
+         console.log('终点与起点相同');
+      }
+      
+      // 检查坐标是否有效
+      if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) {
+         console.log('坐标无效，无法绘制', { startX, startY, endX, endY });
+         return;
+      }
+      
+      // 绘制测量线
+      canvasContext.beginPath();
+      canvasContext.moveTo(startX, startY);
+      canvasContext.lineTo(endX, endY);
+      canvasContext.stroke();
+      
+      console.log('已绘制测量线', { startX, startY, endX, endY });
+      
+      // 在终点绘制圆点
+      canvasContext.beginPath();
+      canvasContext.arc(endX, endY, 4, 0, 2 * Math.PI);
+      canvasContext.fillStyle = '#FF0000';
+      canvasContext.fill();
+      
+      // 显示距离文本
+      if (measurementDistance.value !== null) {
+         const midX = (startX + endX) / 2;
+         const midY = (startY + endY) / 2;
+         
+         // 设置文本样式
+         canvasContext.font = '14px Arial';
+         canvasContext.fillStyle = '#FF0000'; // 根据规范，文本也使用红色
+         canvasContext.strokeStyle = '#FFFFFF';
+         canvasContext.lineWidth = 2;
+         canvasContext.textAlign = 'center';
+         canvasContext.textBaseline = 'middle';
+         
+         // 根据距离值决定单位
+         let displayDistance = measurementDistance.value;
+         let unit = ' μm';
+         
+         // 当距离大于1000um时，转换为mm
+         if (displayDistance >= 1000) {
+            displayDistance = displayDistance / 1000;
+            unit = ' mm';
+         }
+         
+         const distanceText = `${displayDistance.toFixed(displayDistance < 1 ? 2 : (displayDistance >= 1000 ? 3 : 1))}${unit}`;
+         
+         // 绘制文本边框（白色轮廓）
+         canvasContext.strokeText(
+            distanceText,
+            midX,
+            midY
+         );
+         
+         // 绘制文本填充（红色填充）
+         canvasContext.fillText(
+            distanceText,
+            midX,
+            midY
+         );
+         
+         console.log('已绘制距离文本', { distanceText, midX, midY });
+      }
+   }
+};
+
 // 切换全屏模式
 const toggleFullScreen = () => {
    if (!document.fullscreenElement) {
@@ -591,208 +959,6 @@ const getCurrentTileSource = () => {
   }
 };
 
-// 切换测量模式
-const toggleMeasurementMode = () => {
-  isMeasuring.value = !isMeasuring.value;
-  
-  if (isMeasuring.value) {
-    // 进入测量模式
-    startMeasurementMode();
-    // 在测量模式下禁用拖动
-    if (viewer) {
-      viewer.panHorizontal = false;
-      viewer.panVertical = false;
-    }
-  } else {
-    // 退出测量模式，清除测量线
-    clearMeasurement();
-    // 恢复拖动功能
-    if (viewer) {
-      updatePanControls(viewer);
-    }
-  }
-};
-
-// 开始测量模式
-const startMeasurementMode = () => {
-  if (!viewer) return;
-  
-  // 添加鼠标事件监听器
-  const svgOverlay = addSvgOverlay(viewer);
-  
-  // 创建测量线和文本元素
-  createMeasurementElements(svgOverlay);
-  
-  // 添加鼠标事件
-  addMeasurementEventListeners();
-};
-
-// 创建测量元素
-const createMeasurementElements = (svgOverlay: SVGGElement) => {
-  // 清除之前的测量元素
-  clearMeasurementElements(svgOverlay);
-  
-  const svgNS = 'http://www.w3.org/2000/svg';
-  
-  // 创建测量线
-  const line = document.createElementNS(svgNS, 'line');
-  line.setAttribute('id', 'measurement-line');
-  line.setAttribute('stroke', '#ff0000');
-  line.setAttribute('stroke-width', '2');
-  // 移除虚线属性，使用实线
-  svgOverlay.appendChild(line);
-  measurementLine.value = line;
-  
-  // 创建测量文本
-  const text = document.createElementNS(svgNS, 'text');
-  text.setAttribute('id', 'measurement-text');
-  text.setAttribute('fill', '#ff0000');
-  // 移除描边，只使用纯色
-  text.setAttribute('font-size', '16');
-  text.setAttribute('font-family', 'Arial, sans-serif');
-  text.setAttribute('text-anchor', 'middle');
-  text.setAttribute('dominant-baseline', 'middle');
-  text.style.pointerEvents = 'none';
-  text.textContent = '';
-  svgOverlay.appendChild(text);
-  measurementText.value = text;
-};
-
-// 清除测量元素
-const clearMeasurementElements = (svgOverlay: SVGGElement) => {
-  const existingLine = svgOverlay.querySelector('#measurement-line');
-  const existingText = svgOverlay.querySelector('#measurement-text');
-  
-  if (existingLine) svgOverlay.removeChild(existingLine);
-  if (existingText) svgOverlay.removeChild(existingText);
-  
-  measurementLine.value = null;
-  measurementText.value = null;
-};
-
-// 清除测量
-const clearMeasurement = () => {
-  if (viewer && measurementLine.value && measurementText.value) {
-    const svgOverlay = addSvgOverlay(viewer);
-    clearMeasurementElements(svgOverlay);
-  }
-};
-
-// 添加测量事件监听器
-const addMeasurementEventListeners = () => {
-  if (!viewer) return;
-  
-  // 临时存储起始点（屏幕坐标）
-  let startPoint: { x: number; y: number } | null = null;
-  
-  // 鼠标按下事件
-  const canvasMouseDownHandler = (event: any) => {
-    if (!isMeasuring.value) return;
-    
-    // 获取鼠标在viewer容器内的坐标
-    const viewerContainer = viewer.canvas;
-    const rect = viewerContainer.getBoundingClientRect();
-    const mouseX = event.originalEvent.clientX - rect.left;
-    const mouseY = event.originalEvent.clientY - rect.top;
-    
-    startPoint = { x: mouseX, y: mouseY };
-    
-    // 显示测量线起点
-    updateMeasurement(startPoint, startPoint);
-  };
-  
-  // 鼠标移动事件
-  const canvasMouseMoveHandler = (event: any) => {
-    if (!isMeasuring.value || !startPoint) return;
-    
-    // 获取鼠标在viewer容器内的坐标
-    const viewerContainer = viewer.canvas;
-    const rect = viewerContainer.getBoundingClientRect();
-    const mouseX = event.originalEvent.clientX - rect.left;
-    const mouseY = event.originalEvent.clientY - rect.top;
-    
-    // 更新测量线
-    updateMeasurement(startPoint, { x: mouseX, y: mouseY });
-  };
-  
-  // 鼠标释放事件
-  const canvasMouseUpHandler = (event: any) => {
-    if (!isMeasuring.value || !startPoint) return;
-    
-    // 获取鼠标在viewer容器内的坐标
-    const viewerContainer = viewer.canvas;
-    const rect = viewerContainer.getBoundingClientRect();
-    const mouseX = event.originalEvent.clientX - rect.left;
-    const mouseY = event.originalEvent.clientY - rect.top;
-    
-    // 完成测量线
-    updateMeasurement(startPoint, { x: mouseX, y: mouseY });
-    
-    startPoint = null; // 重置起始点
-  };
-  
-  // 注册事件监听器
-  viewer.addHandler('canvas-press', canvasMouseDownHandler);
-  viewer.addHandler('canvas-drag', canvasMouseMoveHandler);
-  viewer.addHandler('canvas-release', canvasMouseUpHandler);
-  
-  // 存储事件处理器以便后续移除
-  viewer.userData = viewer.userData || {};
-  viewer.userData.measurementHandlers = {
-    mouseDown: canvasMouseDownHandler,
-    mouseMove: canvasMouseMoveHandler,
-    mouseUp: canvasMouseUpHandler
-  };
-};
-
-// 更新测量线和文本
-const updateMeasurement = (start: { x: number; y: number }, end: { x: number; y: number }) => {
-  if (!measurementLine.value || !measurementText.value || !viewer) return;
-  
-  // 直接使用屏幕坐标更新测量线
-  measurementLine.value.setAttribute('x1', start.x.toString());
-  measurementLine.value.setAttribute('y1', start.y.toString());
-  measurementLine.value.setAttribute('x2', end.x.toString());
-  measurementLine.value.setAttribute('y2', end.y.toString());
-  
-  // 计算两点之间的屏幕距离（像素）
-  const screenPixelDistance = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
-  
-  // 将屏幕坐标转换为图像坐标以计算实际物理距离
-  const startViewport = viewer.viewport.pointFromPixel(new OpenSeadragon.Point(start.x, start.y), true);
-  const endViewport = viewer.viewport.pointFromPixel(new OpenSeadragon.Point(end.x, end.y), true);
-  
-  // 转换为图像坐标
-  const startImage = viewer.viewport.viewportToImageCoordinates(startViewport);
-  const endImage = viewer.viewport.viewportToImageCoordinates(endViewport);
-  
-  // 计算图像坐标下的距离
-  const imagePixelDistance = Math.sqrt(Math.pow(endImage.x - startImage.x, 2) + Math.pow(endImage.y - startImage.y, 2));
-  
-  // 使用图像的校准信息转换为实际物理距离
-  // calibration是每个像素代表的实际距离（微米）
-  const calibration = imageInfo.baseInfo.calibration;
-  const physicalDistance = imagePixelDistance * calibration;
-  
-  // 计算文本位置（线段中点稍偏移）
-  const midX = (start.x + end.x) / 2;
-  const midY = (start.y + end.y) / 2 - 20; // 向上偏移显示文本
-  
-  // 更新测量文本
-  measurementText.value.setAttribute('x', midX.toString());
-  measurementText.value.setAttribute('y', midY.toString());
-  
-  // 当距离大于1000微米时，转换为毫米
-  let displayDistance = physicalDistance;
-  let unit = ' μm';
-  if (physicalDistance >= 1000) {
-    displayDistance = physicalDistance / 1000;
-    unit = ' mm';
-  }
-  
-  measurementText.value.textContent = `${displayDistance.toFixed(2)}${unit}`;
-};
-
 // 处理键盘缩放快捷键
 const handleKeyDown = (event: KeyboardEvent) => {
    const key = event.key.toLowerCase();
@@ -816,14 +982,6 @@ onMounted(() => {
 
 onUnmounted(() => {
    if (viewer) {
-      // 移除测量模式相关的事件监听器
-      if (viewer.userData && viewer.userData.measurementHandlers) {
-         const handlers = viewer.userData.measurementHandlers;
-         viewer.removeHandler('canvas-press', handlers.mouseDown);
-         viewer.removeHandler('canvas-drag', handlers.mouseMove);
-         viewer.removeHandler('canvas-release', handlers.mouseUp);
-      }
-      
       viewer.destroy();
       viewer = null;
    }
@@ -833,6 +991,11 @@ onUnmounted(() => {
    }
 
    window.removeEventListener('keydown', handleKeyDown);
+   
+   // 清理测量相关资源
+   if (measuringMode.value) {
+      toggleMeasuringMode(); // 退出测量模式
+   }
 });
 </script>
 
