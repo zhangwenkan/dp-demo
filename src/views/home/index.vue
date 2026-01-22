@@ -292,7 +292,7 @@ const initOpenSeadragon = () => {
     // 添加缩放事件监听
     zoomPerClick: 1.2,
     visibilityRatio: 0.1,
-    constrainDuringPan: false,
+    constrainDuringPan: true, // 启用缩放和平移期间的约束
     minZoomLevel: 0.01,
     gestureSettingsMouse: { 
       clickToZoom: false, // 禁用鼠标单击
@@ -360,6 +360,12 @@ const initOpenSeadragon = () => {
     
     // 动态控制拖动功能：根据导航视图中红框大小来判断
     updatePanControls();
+    
+    // 如果缩放到足够小，强制居中
+    if (actualMultiplier < 1) {
+      // 应用约束以确保图像在视口范围内
+      viewer.viewport.applyConstraints(true);
+    }
   });
   
   // 监听缩放结束事件，处理居中逻辑
@@ -380,24 +386,23 @@ const initOpenSeadragon = () => {
     
     // 当缩放到足够小时（小于1:1），自动居中
     if (actualMultiplier < 1) { // 当缩放到小于1:1时自动居中
-       const currentCenter = viewer.viewport.getCenter();
-       const imageCenter = new OpenSeadragon.Point(0.5, 0.5); // 图像中心点
-       
-       // 计算当前中心点与图像中心的距离
-       const distance = Math.sqrt(
-          Math.pow(currentCenter.x - imageCenter.x, 2) + 
-          Math.pow(currentCenter.y - imageCenter.y, 2)
-       );
-       
-       // 如果偏离超过一定阈值，则居中
-       if (distance > 0.05) {
-          viewer.viewport.goHome(true); // 平滑移动到居中位置
-       }
+      // 延迟执行居中操作，确保约束已应用
+      setTimeout(() => {
+        viewer.viewport.goHome(true); // 平滑移动到居中位置
+      }, 50);
     }
   });
   
   // 监听位置变化
   viewer.addHandler('pan', function () {
+    // 当缩放倍数小于1且位置偏离中心时，适当约束位置
+    const currentZoom = viewer.viewport.getZoom();
+    const actualMultiplier = initialZoom > 0 ? currentZoom / initialZoom : 1;
+    
+    if (actualMultiplier < 1) {
+      // 应用约束以确保图像不会完全移出视野
+      viewer.viewport.applyConstraints(true);
+    }
   });
 };
 
