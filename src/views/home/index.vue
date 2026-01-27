@@ -24,12 +24,17 @@
                   </ElIcon>
                </button>
                <button @click="toggleMeasuringMode"
-                  class="bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 font-medium py-2 px-3 rounded-lg shadow-lg transition duration-200 flex items-center cursor-pointer">
+                  class="bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 font-medium py-2 px-3 rounded-lg shadow-lg transition duration-200 flex items-center cursor-pointer"
+                  :class="{ '!bg-sky-700 !text-white': isMeasuringRef }">
                   <ElIcon :size="20">
-                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="20" height="20">
-                        <path fill="currentColor"
-                           d="M128 480h768v64H128v-64z m0-256h768v64H128V224z m0 512h768v64H128v-64z" />
-                     </svg>
+                     <Crop />
+                  </ElIcon>
+               </button>
+               <button @click="toggleAnnotationMode"
+                  class="bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 font-medium py-2 px-3 rounded-lg shadow-lg transition duration-200 flex items-center cursor-pointer"
+                  :class="{ '!bg-indigo-600 !text-white': isAnnotating }">
+                  <ElIcon :size="20">
+                     <EditPen />
                   </ElIcon>
                </button>
             </div>
@@ -93,7 +98,12 @@
       <div id="openseadragon1" class="w-full h-full bg-gray-100 relative"></div>
       <!-- 导航视图 -->
       <NavigatorView :viewer="viewer" :imageList="imageList" :currentIndex="currentIndex" />
-
+      
+      <!-- 标注面板 -->
+      <AnnotationPanel 
+        :viewer="viewer" 
+        :isAnnotating="isAnnotating" 
+        v-show="isAnnotating" />
    </div>
 </template>
 
@@ -105,12 +115,15 @@ import { DndProvider } from 'vue3-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import SlideListPanel from '@/components/SlideListPanel.vue';
 import NavigatorView from '@/components/NavigatorView.vue';
-import { ElIcon } from 'element-plus';
+import { ElIcon, ElMessage } from 'element-plus';
 import {
    Document,
    Refresh,
-   FullScreen
+   FullScreen,
+   EditPen,
+   Crop
 } from '@element-plus/icons-vue';
+import AnnotationPanel from '@/components/AnnotationPanel.vue';
 
 // 图像列表
 const imageList = reactive([
@@ -221,10 +234,10 @@ let viewer: any = null;
 let playTimer: any = null;
 let initialZoom: number = 1; // 记录初始缩放级别
 
-// 存储所有测量线终点坐标
+// 存储所有测量线的起点和终点坐标
 let measureLineId = 0;
 let activeLineId: number | null = null;
-let allLineEnds: { id: number, left: number, top: number }[] = [];
+let allLines: { id: number, startPoint: {left: number, top: number}, endPoint: {left: number, top: number} }[] = [];
 
 const slideListPanelRef = ref<InstanceType<typeof SlideListPanel> | null>(null);
 
@@ -236,6 +249,8 @@ const playDirection = ref('forward');
 const zoomValue = ref(1);
 const zoomPercent = ref(100);
 const slideListVisible = ref(false); // 切片列表面板是否可见
+const isAnnotating = ref(false);
+const isMeasuringRef = ref(false);
 
 // 缩放倍数级别
 const zoomLevels = [
@@ -258,6 +273,30 @@ const showResetButton = computed(() => {
    return position.x !== 60 || position.y !== 175;  // 恢复初始位置判断
 });
 
+// 计算两点之间的物理距离（以微米为单位）
+function calculateLineDistanceInMicrometers(startPoint: {left: number, top: number}, endPoint: {left: number, top: number}) {
+   // 获取图像的物理尺寸参数
+   const pixelSize = imageInfo.baseInfo.calibration; // μm/Pixel
+   
+   // 计算两点之间的欧几里得距离（以像素为单位）
+   const deltaX = (endPoint.left - startPoint.left) * imageInfo.baseInfo.width;
+   const deltaY = (endPoint.top - startPoint.top) * imageInfo.baseInfo.height;
+   const distanceInPixels = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+   
+   // 转换为物理距离（微米）
+   return distanceInPixels * pixelSize;
+}
+
+// 格式化距离显示
+function formatDistance(distance_um: number): string {
+   if (distance_um >= 1000) {
+      // 转换为毫米，保留两位小数
+      return `${(distance_um / 1000).toFixed(2)} mm`;
+   } else {
+      // 显示为微米，保留一位小数
+      return `${distance_um.toFixed(1)} μm`;
+   }
+}
 
 // 绘制所有345标记（提前声明，确保作用域）
 function drawAll345Labels() {
@@ -279,19 +318,23 @@ function drawAll345Labels() {
       textCanvas.style.zIndex = '1000';
       parent.appendChild(textCanvas);
    }
-      
+   
    // 确保canvas尺寸与容器一致
    if (textCanvas.width !== parent.offsetWidth || textCanvas.height !== parent.offsetHeight) {
       textCanvas.width = parent.offsetWidth;
       textCanvas.height = parent.offsetHeight;
    }
-      
+   
    const ctx = textCanvas.getContext('2d');
    if (ctx) {
       ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
-      allLineEnds.forEach(item => {
-         // 将世界坐标转换为canvas像素坐标
-         const pixelPoint = viewer.viewport.pixelFromPoint(new OpenSeadragon.Point(item.left, item.top), true);
+      allLines.forEach(item => {
+         // 计算直线的物理距离
+         const distance_um = calculateLineDistanceInMicrometers(item.startPoint, item.endPoint);
+         const distanceText = formatDistance(distance_um);
+         
+         // 将终点的世界坐标转换为canvas像素坐标
+         const pixelPoint = viewer.viewport.pixelFromPoint(new OpenSeadragon.Point(item.endPoint.left, item.endPoint.top), true);
             
          // 根据当前缩放级别调整字体大小
          const currentZoom = viewer.viewport.getZoom();
@@ -301,7 +344,7 @@ function drawAll345Labels() {
             
          ctx.font = `bold ${fontSize}px Arial`;
          ctx.fillStyle = '#ff3333';
-         ctx.fillText('345', pixelPoint.x + 10, pixelPoint.y + fontSize + 6);
+         ctx.fillText(distanceText, pixelPoint.x + 10, pixelPoint.y + fontSize + 6);
       });
    }
 }
@@ -405,10 +448,17 @@ const initOpenSeadragon = () => {
             }
             console.log('鼠标释放，结束测量');
             // 记录终点
-            if (activeLineId !== null && lastDragPos) {
+            if (activeLineId !== null && lastDragPos && mouseDownPos) {
+               // 将鼠标按下位置转换为图像坐标
+               const startPoint = viewer.viewport.pointFromPixel(mouseDownPos, true);
+               
                // 先移除同id
-               allLineEnds = allLineEnds.filter(item => item.id !== activeLineId);
-               allLineEnds.push({ id: activeLineId, left: lastDragPos.left, top: lastDragPos.top });
+               allLines = allLines.filter(item => item.id !== activeLineId);
+               allLines.push({ 
+                  id: activeLineId, 
+                  startPoint: { left: startPoint.x, top: startPoint.y }, 
+                  endPoint: { left: lastDragPos.left, top: lastDragPos.top } 
+               });
                drawAll345Labels();
             }
             activeLineId = null;
@@ -444,9 +494,13 @@ const initOpenSeadragon = () => {
             if (ctx) {
                ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
                // 绘制所有已完成的终点
-               allLineEnds.forEach(item => {
-                  // 将世界坐标转换为canvas像素坐标
-                  const pixelPoint = viewer.viewport.pixelFromPoint(new OpenSeadragon.Point(item.left, item.top), true);
+               allLines.forEach(item => {
+                  // 计算直线的物理距离
+                  const distance_um = calculateLineDistanceInMicrometers(item.startPoint, item.endPoint);
+                  const distanceText = formatDistance(distance_um);
+                  
+                  // 将终点的世界坐标转换为canvas像素坐标
+                  const pixelPoint = viewer.viewport.pixelFromPoint(new OpenSeadragon.Point(item.endPoint.left, item.endPoint.top), true);
                   
                   // 根据当前缩放级别调整字体大小
                   const currentZoom = viewer.viewport.getZoom();
@@ -456,10 +510,20 @@ const initOpenSeadragon = () => {
                   
                   ctx.font = `bold ${fontSize}px Arial`;
                   ctx.fillStyle = '#ff3333';
-                  ctx.fillText('345', pixelPoint.x + 10, pixelPoint.y + fontSize + 6);
+                  ctx.fillText(distanceText, pixelPoint.x + 10, pixelPoint.y + fontSize + 6);
                });
-               // 绘制当前拖动点
-               if (lastDragPos) {
+               // 绘制当前拖动点（显示当前线段的距离）
+               if (lastDragPos && mouseDownPos) {
+                  // 将鼠标按下和当前拖动位置转换为图像坐标
+                  const startPoint = viewer.viewport.pointFromPixel(mouseDownPos, true);
+                  
+                  // 计算当前线段的物理距离
+                  const distance_um = calculateLineDistanceInMicrometers(
+                     { left: startPoint.x, top: startPoint.y },
+                     { left: lastDragPos.left, top: lastDragPos.top }
+                  );
+                  const distanceText = formatDistance(distance_um);
+                  
                   // 将当前拖动点的世界坐标转换为canvas像素坐标
                   const currentPixelPoint = viewer.viewport.pixelFromPoint(new OpenSeadragon.Point(lastDragPos.left, lastDragPos.top), true);
                   
@@ -471,7 +535,7 @@ const initOpenSeadragon = () => {
                   
                   ctx.font = `bold ${fontSize}px Arial`;
                   ctx.fillStyle = '#ff3333';
-                  ctx.fillText('345', currentPixelPoint.x + 10, currentPixelPoint.y + fontSize + 6);
+                  ctx.fillText(distanceText, currentPixelPoint.x + 10, currentPixelPoint.y + fontSize + 6);
                }
             }
          }
@@ -717,6 +781,19 @@ const handleKeyDown = (event: KeyboardEvent) => {
 let doodle: any = null;
 let isMeasuring = false;
 
+// 清除测量模式下的距离文字画布
+const clearMeasurementTextCanvas = () => {
+  const textCanvas = document.getElementById('measure-text-canvas-all') as HTMLCanvasElement;
+  if (textCanvas) {
+    const ctx = textCanvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
+    }
+    // 移除元素
+    textCanvas.remove();
+   }
+}
+
 // 测量模式切换
 const toggleMeasuringMode = () => {
    if (isMeasuring) {
@@ -725,9 +802,18 @@ const toggleMeasuringMode = () => {
          doodle.destroy();
          doodle = null;
       }
+      // 清除距离文字画布
+      clearMeasurementTextCanvas();
       isMeasuring = false;
+      isMeasuringRef.value = false;
       console.log('退出测量模式');
    } else {
+      // 在进入测量模式前，先退出标注模式
+      if (isAnnotating.value) {
+         isAnnotating.value = false;
+         console.log('退出标注模式');
+      }
+      
       // 进入测量模式
       doodle = createDoodle({
          viewer, // openseadragon viewer
@@ -769,7 +855,37 @@ const toggleMeasuringMode = () => {
       }
       
       isMeasuring = true;
+      isMeasuringRef.value = true;
+      // 显示提示信息
+      ElMessage.warning('再次点击"测量"按钮退出测量模式！');
       console.log('进入测量模式');
+   }
+};
+
+// 标注模式切换
+const toggleAnnotationMode = () => {
+   if (isAnnotating.value) {
+      // 退出标注模式
+      isAnnotating.value = false;
+      console.log('退出标注模式');
+   } else {
+      // 在进入标注模式前，先退出测量模式
+      if (isMeasuring) {
+         // 退出测量模式
+         if (doodle) {
+            doodle.destroy();
+            doodle = null;
+         }
+         // 清除距离文字画布
+         clearMeasurementTextCanvas();
+         isMeasuring = false;
+         isMeasuringRef.value = false;
+         console.log('退出测量模式');
+      }
+      
+      // 进入标注模式
+      isAnnotating.value = true;
+      console.log('进入标注模式');
    }
 };
 
