@@ -416,7 +416,7 @@ const initOpenSeadragon = () => {
    // 在viewer初始化后添加事件监听器
    const addMeasurementEventListeners = () => {
       viewer.addHandler('canvas-press', function(event) {
-         if (isMeasuring) {
+         if (isMeasuringRef.value) {
             isMouseDown = true;
             mouseDownPos = event.position;
             viewer.panHorizontal = false;
@@ -429,7 +429,7 @@ const initOpenSeadragon = () => {
       });
 
       viewer.addHandler('canvas-release', function(event) {
-         if (isMeasuring && isMouseDown) {
+         if (isMeasuringRef.value && isMouseDown) {
             isMouseDown = false;
             // 重新启用拖动（如果条件允许）
             const bounds = viewer.viewport.getBounds();
@@ -466,7 +466,7 @@ const initOpenSeadragon = () => {
       });
 
       viewer.addHandler('canvas-drag', function(event) {
-         if (isMeasuring && isMouseDown && activeLineId !== null) {
+         if (isMeasuringRef.value && isMouseDown && activeLineId !== null) {
             // 获取鼠标在容器内的像素坐标
             const osdContainer = document.getElementById('openseadragon1');
             if (!osdContainer) return;
